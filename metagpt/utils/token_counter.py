@@ -52,6 +52,8 @@ TOKEN_COSTS = {
     "glm-4": {"prompt": 0.014, "completion": 0.014},  # 128k version, prompt + completion tokens=0.1￥/k-tokens
     "glm-4-flash": {"prompt": 0, "completion": 0},
     "glm-4-plus": {"prompt": 0.007, "completion": 0.007},
+    "gemini-2.5-flash": {"prompt": 0.00015, "completion": 0.0006},
+    "gemini-2.5-pro": {"prompt": 0.00125, "completion": 0.01},
     "gemini-1.5-flash": {"prompt": 0.000075, "completion": 0.0003},
     "gemini-1.5-pro": {"prompt": 0.0035, "completion": 0.0105},
     "gemini-1.0-pro": {"prompt": 0.0005, "completion": 0.0015},
@@ -275,6 +277,8 @@ TOKEN_MAX = {
     "text-embedding-ada-002": 8192,
     "glm-3-turbo": 128000,
     "glm-4": 128000,
+    "gemini-2.5-flash": 1000000,
+    "gemini-2.5-pro": 2000000,
     "gemini-1.5-flash": 1000000,
     "gemini-1.5-pro": 2000000,
     "gemini-1.0-pro": 32000,

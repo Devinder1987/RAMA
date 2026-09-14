@@ -49,7 +49,7 @@ def generate_repo(
                 Architect(),
                 Engineer2(),
                 # ProjectManager(),
-                DataAnalyst(),
+                # DataAnalyst(),
             ]
         )
 
@@ -139,16 +139,16 @@ def copy_config_to():
     """Initialize the configuration file for MetaGPT."""
     target_path = CONFIG_ROOT / "config2.yaml"
 
-    # 创建目标目录（如果不存在）
+    # Create the target directory if it does not exist.
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 如果目标文件已经存在，则重命名为 .bak
+    # Rename existing target file to .bak.
     if target_path.exists():
         backup_path = target_path.with_suffix(".bak")
         target_path.rename(backup_path)
         print(f"Existing configuration file backed up at {backup_path}")
 
-    # 复制文件
+    # Copy file.
     target_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
     print(f"Configuration file initialized at {target_path}")
 

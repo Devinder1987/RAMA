@@ -122,8 +122,12 @@ class RoleZero(Role):
             "Plan.append_task": self.planner.plan.append_task,
             "Plan.reset_task": self.planner.plan.reset_task,
             "Plan.replace_task": self.planner.plan.replace_task,
+            "Plan.define_plan": self._define_plan,
             "RoleZero.ask_human": self.ask_human,
             "RoleZero.reply_to_human": self.reply_to_human,
+            # Aliases for Gemini-generated command names
+            "File.write": self.editor.write,
+            "File.read": self.editor.read,
         }
         if self.config.enable_search:
             self.tool_execution_map["SearchEnhancedQA.run"] = SearchEnhancedQA().run
@@ -305,9 +309,16 @@ class RoleZero(Role):
         self._set_state(0)
 
         # problems solvable by quick thinking doesn't need to a formal think-act cycle
-        quick_rsp, _ = await self._quick_think()
-        if quick_rsp:
-            return quick_rsp
+        # Skip quick_think when using fixed SOP so the traditional pipeline produces files
+        if self.use_fixed_sop:
+            # Classic SOP roles take exactly one action per observation (base Role
+            # default); progression is driven by watched messages between env rounds.
+            # RoleZero's default of 50 makes single-action roles repeat their action.
+            self.rc.max_react_loop = 1
+        else:
+            quick_rsp, _ = await self._quick_think()
+            if quick_rsp:
+                return quick_rsp
 
         actions_taken = 0
         rsp = AIMessage(content="No actions taken yet", cause_by=Action)  # will be overwritten after Role _act
@@ -407,6 +418,17 @@ class RoleZero(Role):
                     logger.exception(str(e) + tb)
                     outputs.append(output + f": {tb}")
                     break  # Stop executing if any command fails
+            elif cmd["command_name"].startswith("Plan."):
+                # Catch-all: Gemini invents Plan.* command names; route to _define_plan
+                args = cmd["args"]
+                # Support plan=list/str, tasks=list, or goal+tasks formats
+                raw = args.get("plan") or args.get("tasks") or args.get("steps") or list(args.values())[0] if args else []
+                tool_output = self._define_plan_from_arg(raw)
+                outputs.append(f"Command {cmd['command_name']} executed: {tool_output}")
+            elif cmd["command_name"].startswith("File.") and "path" in cmd["args"]:
+                # Catch-all: Gemini uses File.* instead of Editor.*
+                tool_output = self.editor.write(cmd["args"]["path"], cmd["args"].get("content", ""))
+                outputs.append(f"Command {cmd['command_name']} executed: {str(tool_output)}")
             else:
                 outputs.append(f"Command {cmd['command_name']} not found.")
                 break
@@ -452,6 +474,42 @@ class RoleZero(Role):
         context = "\n\n".join(context)
         example = self.experience_retriever.retrieve(context=context)
         return example
+
+    def _define_plan(self, plan) -> str:
+        """Handle Plan.define_plan from models that generate it instead of Plan.append_task."""
+        return self._define_plan_from_arg(plan)
+
+    def _define_plan_from_arg(self, plan) -> str:
+        """Parse plan from list, list-of-dicts, or string format and register tasks."""
+        if isinstance(plan, list):
+            tasks = []
+            for item in plan:
+                if isinstance(item, dict):
+                    # e.g. {'task': '...', 'status': '...'} or {'instruction': '...'}
+                    instruction = item.get("task") or item.get("instruction") or item.get("description") or str(item)
+                else:
+                    instruction = str(item)
+                tasks.append(instruction)
+        else:
+            # Parse string format: "[GOAL]...\n[TASK] foo\n[TASK] bar"
+            tasks = [
+                line.replace("[TASK]", "").strip()
+                for line in str(plan).splitlines()
+                if "[TASK]" in line and line.replace("[TASK]", "").strip()
+            ]
+            if not tasks:
+                tasks = [line.strip() for line in str(plan).splitlines() if line.strip()]
+
+        for i, instruction in enumerate(tasks):
+            task_id = str(i + 1)
+            dependent_task_ids = [str(i)] if i > 0 else []
+            self.planner.plan.append_task(
+                task_id=task_id,
+                dependent_task_ids=dependent_task_ids,
+                instruction=instruction,
+                assignee="",
+            )
+        return f"Plan defined with {len(tasks)} tasks."
 
     async def ask_human(self, question: str) -> str:
         """Use this when you fail the current task or if you are unsure of the situation encountered. Your response should contain a brief summary of your situation, ended with a clear and concise question."""

@@ -1,0 +1,23 @@
+Build an online shop for customers to buy products with email and password as login, Guest user allow to shop, Credit card and paypal as payment options, around 100 site visits per day.
+
+Additional requirements clarified during elicitation:
+  - Shopping Cart: Guest cart merge into account on login.
+  - Checkout: Guest checkout (no account required).
+  - Order Management: Standard lifecycle: pending → confirmed → shipped → delivered.
+  - Performance: <2 s API response (standard e-commerce).
+  - Security Compliance: GDPR (EU data protection).
+  - Business Model: B2C — sell to individual consumers (retail).
+  - Application Type: Standalone — single tenant, one client, dedicated infrastructure.
+  - Search And Filter: Basic keyword search (SQL LIKE).
+  - Wishlist: Multiple named wishlists per user.
+  - Promotions Coupons: Minimum order value threshold for discount.
+  - User Profile: Basic profile (name, email, phone), Saved payment methods.
+  - Admin Panel: Product management (CRUD + bulk import/export).
+  - Scalability: Microservices — highly scalable, independent deployments.
+  - Availability: 99.5% uptime (standard / budget hosting).
+  - Rental Service: No rental — purchase only, Long-term rental (weekly / monthly), Damage / return condition tracking.
+  - Order Frequency: Medium frequency — fashion (clothing, shoes, accessories — monthly / seasonal).
+  - Seo: SEO-friendly URL slugs (/products/red-running-shoes).
+  - Geo Location: Delivery zone restrictions (only ship to selected countries / regions).
+  - Multi Currency Language: Single currency, single language (simplest).
+  - Inventory Management: Single warehouse — basic stock count per product.

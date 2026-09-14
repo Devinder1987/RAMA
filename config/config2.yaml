@@ -2,7 +2,20 @@
 # Reflected Code: https://github.com/geekan/MetaGPT/blob/main/metagpt/config2.py
 # Config Docs: https://docs.deepwisdom.ai/main/en/guide/get_started/configuration.html
 llm:
-  api_type: "openai"  # or azure / ollama / groq etc.
-  model: "gpt-4-turbo"  # or gpt-3.5-turbo
-  base_url: "https://api.openai.com/v1"  # or forward url / other llm url
-  api_key: "YOUR_API_KEY"
+  api_type: "gemini"
+  api_key: "AIzaSyDpHA3cTVH_UacEnW1tT_j7z_RLhNb0-GM"
+  model: "gemini-2.5-flash"
+
+# Claude (for later production use)
+# llm:
+#   api_type: "claude"
+#   base_url: "https://api.anthropic.com"
+#   api_key: "YOUR_ANTHROPIC_API_KEY"
+#   model: "claude-3-5-sonnet-20241022"
+
+# OpenAI (commented out)
+# llm:
+#   api_type: "openai"
+#   model: "gpt-4-turbo"
+#   base_url: "https://api.openai.com/v1"
+#   api_key: "YOUR_OPENAI_API_KEY"

@@ -354,13 +354,13 @@ class Editor(BaseModel):
         output += self._print_window(self.current_file, self.current_line, self.window)
         return output
 
-    async def create_file(self, filename: str) -> str:
+    async def create_file(self, file_path: str) -> str:
         """Creates and opens a new file with the given name.
 
         Args:
-            filename: str: The name of the file to create. If the parent directory does not exist, it will be created.
+            file_path: str: The name of the file to create. If the parent directory does not exist, it will be created.
         """
-        filename = self._try_fix_path(filename)
+        filename = self._try_fix_path(file_path)
 
         if filename.exists():
             raise FileExistsError(f"File '{filename}' already exists.")
