@@ -1,296 +1,196 @@
-# RAMA + MetaGPT — Full-System Pseudocode
+# RAMA — Requirement-Aware MetaGPT
 
-RAMA Thesis — Devinder Shuthwal, LJMU 2026
-Covers the complete current system: Elicitation Layer (W1–W8), the MetaGPT
-generation pipeline, ablation switches, token/cost/latency accounting, the
-per-run analysis.txt report, and the ACQS architecture-coverage metric.
+**RAMA Thesis — Devinder Shuthwal, LJMU 2026**
 
-Legend of run-configurable switches (from the CLI):
-skip_elicitation bypass the RAMA layer entirely (S0)
-use_llm_parse W2 LLM extraction vs keyword fallback (A2 off)
-use_rag W1 knowledge-base hints on questions (A1 off)
-use_llm_synthesis W5 LLM rewrite vs template append (A3 off)
-random_questions random gap selection vs weight-priority (C1)
-docs_only stop after task list, write no code
-mode interactive | llm | silent (answer source)
+RAMA prepends a **Requirement Elicitation Layer** to an otherwise unmodified
+[MetaGPT](https://github.com/geekan/MetaGPT) pipeline. A vague one-line idea is
+parsed, scored for completeness, clarified through a short Q&A dialogue, and
+rewritten into an enriched SRS _before_ MetaGPT's agent team generates the PRD,
+system design, task list and code. Every run also writes a per-run
+`analysis.txt` with completeness, token, cost and latency figures.
 
----
-
-## Algorithm 1 — RAMA Main Pipeline (`rama.py`)
-
-```
-Input : R (requirement), switches above, n_round, project_name
-Output: architecture artefacts + workspace/<project>/docs/analysis.txt
-
- 1  pname     ← project_name or "rama_project"
- 2  temp_path ← evaluation_logs/_analysis_<pname>.tmp.json   ▷ OUTSIDE workspace
-
- 3  if skip_elicitation:                                     ▷ S0 baseline
- 4      enriched ← R ; result ← ∅
- 5  else:
- 6      (enriched, result) ← ELICIT(R, switches)             ▷ Algorithm 2
- 7      show pre/post completeness bars
-
- 8  analysis ← BUILD_ANALYSIS(R, result, switches, pname)    ▷ completeness+tokens
- 9  STASH(temp_path, analysis)               ▷ survives MetaGPT's workspace wipe
-
-10  if dry_run:
-11      write partial analysis → evaluation_logs/<pname>/docs ; stop
-12  if not skip_elicitation and not user_confirms(): stop
-
-13  mg ← RUN_METAGPT(enriched, n_round, pname, docs_only)    ▷ Algorithm 7
-14  analysis ← LOAD(temp_path)                               ▷ reload after wipe
-15  analysis.metagpt ← mg
-16  analysis.totals  ← { tokens : elic_tokens + mg.tokens,
-17                       seconds: elic_secs   + mg.seconds }
-18  WRITE_ANALYSIS(workspace/<pname>/docs, analysis)         ▷ Algorithm 10
-19  delete temp_path        ▷ only after the final write succeeds (crash-safe)
-```
+- Source: <https://github.com/Devinder1987/RAMA.git>
+- Full algorithm listing: [RAMA_PSEUDOCODE_CLEAN.md](RAMA_PSEUDOCODE_CLEAN.md)
+- Experiment scripts (S0, S1, A1–A4, C1, D1, E1, R1, R2): [RAMA_SCENARIOS.md](RAMA_SCENARIOS.md)
 
 ---
 
-## Algorithm 2 — Elicitation Pipeline (W2–W6, `ElicitationRunner.run`)
+## Pipeline overview
 
-```
-ELICIT(R, switches):
- 1  t0 ← now
- 2  parsed ← use_llm_parse ? PARSE(R) : PARSE_FALLBACK(R)    ▷ Algorithm 3 (W2)
- 3  pre    ← ANALYSE(parsed)                                 ▷ Algorithm 4 (W3)
- 4  session ← DIALOGUE(R, pre, mode, use_rag, random_questions) ▷ Algorithm 5 (W4)
- 5  synth  ← SYNTHESISE(R, session, use_llm_synthesis)       ▷ Algorithm 6 (W5)
- 6  if synth.enriched = R:  post ← pre           ▷ no-op guard (0 answers → Δ=0)
- 7  else:                   post ← ANALYSE(PARSE_FALLBACK(synth.enriched))
- 8  duration ← now − t0
- 9  LOG_METRICS(pre, post, session, duration)               ▷ W6 → runs.csv
-10  token_usage   ← collect per-stage {prompt,completion,total,calls}
-                     from parser, dialogue, synthesiser      ▷ Algorithm 3a
-11  stage_timings ← {parse, dialogue, synthesis, total}
-12  return (synth.enriched,
-            RunResult(pre, post, session, synth, token_usage, stage_timings))
-```
+| Component             | What it does                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| RAG knowledge base    | Retrieves e-commerce domain hints used to enrich clarifying questions                      |
+| SRS parser            | LLM extraction of the raw idea into a structured schema (keyword/regex fallback available) |
+| Completeness analyser | Scores the parsed SRS against the domain schema (pre-score)                                |
+| Dialogue              | Selects the highest-weight gaps and asks up to _N_ clarifying questions                    |
+| Synthesiser           | Rewrites the idea plus answers into an enriched SRS (LLM or template append)               |
+| Metrics logger        | Re-scores the enriched SRS (post-score) and appends the run to `evaluation_logs/runs.csv`  |
+| MetaGPT               | Consumes the enriched SRS and produces `workspace/<project>/` (docs + code)                |
 
 ---
 
-## Algorithm 3 — SRS Parser (W2, `srs_parser.py`)
+## Setup
 
+Requirements: Python **3.9 – 3.11**, a Gemini API key.
+
+```bash
+git clone https://github.com/Devinder1987/RAMA.git
+cd RAMA
+pip install -r requirements.txt
+pip install -e .
 ```
-PARSE(R):
- 1  hints ← keyword scan of R over ECOMMERCE_SCHEMA (24 categories)
- 2  try:
- 3      response ← LLM("extract actors/entities/intents/NFRs as JSON", R)
- 4      RECORD_USAGE(response)                               ▷ Algorithm 3a
- 5      return ParsedSRS(fields=parse_json(response), hints, method="llm")
- 6  catch: return PARSE_FALLBACK(R)
 
-PARSE_FALLBACK(R):                                           ▷ deterministic, no LLM
- 1  actors,entities ← regex heuristics ; hints ← keyword scan
- 2  return ParsedSRS(actors, entities, hints, method="fallback")
+Copy the example config and add your key:
 
-Algorithm 3a — RECORD_USAGE(response):   ▷ same helper in parser/dialogue/synth
- 1  um ← response.usage_metadata
- 2  self.prompt_tokens     += um.prompt_token_count
- 3  self.completion_tokens += um.candidates_token_count
- 4  self.llm_calls         += 1
+```bash
+cp config/config2.example.yaml config/config2.yaml
 ```
+
+```yaml
+# config/config2.yaml
+llm:
+  api_type: "gemini"
+  api_key: "<your-key>"
+  model: "gemini-2.5-flash"
+```
+
+All reported runs use `gemini-2.5-flash` for both the elicitation layer and
+MetaGPT.
 
 ---
 
-## Algorithm 4 — Completeness Analyser (W3, `completeness_analyser.py`)
+## Running the project
+
+Example requirement used throughout the thesis:
 
 ```
-ANALYSE(P):
- 1  for each category c in ECOMMERCE_SCHEMA:
- 2      coverage[c] ← P.schema_hints[c]
-                      OR ∃ kw ∈ c.keywords : kw ⊆ P.combined_text()
- 3  covered  ← {c : coverage[c]} ; missing ← rest
- 4  raw      ← |covered| / 24                                ▷ Formula 1
- 5  weighted ← Σ_{c∈covered} w_c / Σ_all w_c                 ▷ Formula 2 (Σw=58)
- 6  critical ← {c ∈ missing : w_c = 3}
- 7  per_group[g] ← |covered ∩ g| / |g|   for g ∈ {FUNC,NON_FUNC,DOMAIN}
- 8  level ← POOR<0.3 | PARTIAL<0.6 | GOOD<0.9 | COMPLETE≥0.9
- 9  return Report(raw, weighted, covered, missing, critical, per_group, level)
+Build an online shop for customers to buy products with email and password
+as login, Guest user allow to shop, Credit card and paypal as payment
+options, around 100 site visits per day
 ```
+
+Pass it as the first (quoted) argument to `rama.py`. If omitted you are
+prompted for it.
+
+### S0 — MetaGPT only (baseline)
+
+```bash
+python rama.py "<idea>" --skip-elicitation --n-round 10 \
+  --project-name own_shop_S0_metagpt_only
+```
+
+### S1 — Full RAMA, interactive (you answer the questions)
+
+```bash
+python rama.py "<idea>" --mode interactive --n-round 10 \
+  --project-name own_shop_S1_full_rama
+```
+
+### Other useful invocations
+
+```bash
+# Elicitation only — print the enriched SRS, don't launch MetaGPT
+python rama.py "<idea>" --dry-run
+
+# Save the enriched SRS to a file
+python rama.py "<idea>" --mode llm --save-srs enriched.txt
+
+# Docs only — PRD + system design + task list, no source code
+python rama.py "<idea>" --mode llm --n-round 10 --docs-only --project-name shop_docs
+
+# Ablation: no RAG hints, template synthesis
+python rama.py "<idea>" --mode llm --no-rag --no-llm-synthesis --n-round 10 \
+  --project-name own_shop_ablation
+```
+
+Run `python rama.py --help` for the full option list.
 
 ---
 
-## Algorithm 5 — Elicitation Dialogue (W4 + W1 RAG, `elicitation_dialogue.py`)
+## Command-line switches
 
-```
-DIALOGUE(R, report, mode, use_rag, random_questions):
- 1  gaps ← report.missing categories
- 2  if random_questions:                                     ▷ C1 control
- 3      Q ← random.sample(gaps, max_questions)               ▷ ignore weight
- 4  else:
- 5      Q ← top max_questions of gaps by (weight desc, group order)  ▷ prioritise
- 6  if use_rag and mode ≠ silent:                            ▷ W1 enrichment
- 7      for q in Q: q.rag_hints ← KB.query(q.question, category=q, k=2)
- 8  session ← new Session(R, Q, mode)
- 9  for q in Q:
-10      switch mode:
-11          silent      : a ← ∅                              ▷ baseline, no answers
-12          interactive : a ← human types answer             ▷ 0 LLM tokens
-13          llm         : a ← LLM("answer as stakeholder", R, q, q.rag_hints)
-14                        RECORD_USAGE(response)             ▷ Algorithm 3a
-15      if a valid: session.answers[q.category] ← a
-16  return session
-```
+| Switch                                  | Effect when set                                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--skip-elicitation`                    | Bypass the RAMA layer entirely; the raw requirement is passed straight to MetaGPT              |
+| `--no-llm-parse`                        | Disable the LLM extraction pass; use the keyword and regex fallback only                       |
+| `--no-rag`                              | Disable knowledge-base retrieval; questions are not enriched with domain hints                 |
+| `--no-llm-synthesis`                    | Disable LLM rewriting; assemble the enriched specification by template append                  |
+| `--random-questions`                    | Select gaps for questioning uniformly at random instead of by severity weight                  |
+| `--mode {interactive \| llm \| silent}` | Source of dialogue answers: human, simulated stakeholder, or none (pre-score only)             |
+| `--n-round N`                           | MetaGPT round limit (CLI default 5; **fixed at 10 in all reported runs**)                      |
+| `--max-questions N`                     | Dialogue question budget (default 10; **fixed at 10 in all reported runs**, varied only in D1) |
 
----
-
-## Algorithm 6 — SRS Synthesiser (W5, `srs_synthesiser.py`)
-
-```
-SYNTHESISE(R, session, use_llm_synthesis):
- 1  clars ← session.answers
- 2  if clars = ∅: return R                                   ▷ no-op
- 3  if use_llm_synthesis and api_key:
- 4      response ← LLM("rewrite as one coherent SRS; integrate every
-                        clarification; invent nothing", R, clars)
- 5      RECORD_USAGE(response)                               ▷ Algorithm 3a
- 6      if response non-empty: return enriched   (method="llm")
- 7  return R + "Additional requirements clarified:" + bullets  (method="template")
-```
+| Switch                | Effect                                                            |
+| --------------------- | ----------------------------------------------------------------- |
+| `--dry-run`           | Run elicitation only; print the enriched SRS and stop             |
+| `--save-srs FILE`     | Write the enriched SRS to `FILE`                                  |
+| `--docs-only`         | Stop MetaGPT after the documentation stage (no Engineer, no code) |
+| `--project-name NAME` | Name of the `workspace/` folder for this run                      |
+| `--investment $`      | Dollar budget for the MetaGPT agent team (default 3.0)            |
+| `--no-code-review`    | Disable MetaGPT's code-review step                                |
 
 ---
 
-## Algorithm 7 — MetaGPT Pipeline (`rama.py run_metagpt`)
+## Outputs
+
+Each run writes to `workspace/<project-name>/` (key files shown; MetaGPT also emits `class_view/`, `code_summary/`, `graph_repo/` and `tests/`):
 
 ```
-RUN_METAGPT(R′, n_round, pname, docs_only):
- 1  config.project_path ← workspace/pname     ▷ MOD-3: skips PrepareDocuments'
-                                                fragile parse_resources LLM call
- 2  ctx  ← Context(config) ; team ← Team(ctx, use_mgx=False)
- 3  roles ← [ ProductManager(use_fixed_sop),  ▷ classic SOP roles, no TeamLeader
-             Architect(use_fixed_sop),
-             ProjectManager(use_fixed_sop) ]
- 4  if not docs_only: roles += Engineer(n_borg=5)   ▷ omit → docs only, no code
- 5  team.hire(roles) ; team.invest(budget)
- 6  t0 ← now
- 7  for round ← 1 .. n_round:
- 8      if every role idle: break
- 9      for each role: role.RUN()                            ▷ Algorithm 8
-10  return { prompt_tokens, completion_tokens, total_tokens,   ▷ from
-             cost_usd, seconds: now−t0, rounds, project_path } ▷ ctx.cost_manager
+workspace/<project-name>/
+├── docs/
+│   ├── prd/                # Product requirement document
+│   ├── system_design/      # Architecture JSON (scored by ACQS)
+│   ├── task/               # Task list
+│   └── analysis.txt        # Per-run report: pre/post completeness, tokens, latency, ACQS
+├── resources/
+└── <project-name>/         # Generated source code (omitted with --docs-only)
+```
+
+Cross-run metrics are appended to `evaluation_logs/runs.csv`.
+
+To score a generated architecture deterministically:
+
+```bash
+python metagpt/elicitation/evaluation/acqs_scorer.py \
+  workspace/own_shop_S1_full_rama/docs/system_design/*.json
+```
+
+To run the PURE-corpus batch (scenario E1):
+
+```bash
+python run_pure_baseline.py     # writes evaluation_logs/batch_results_llm.csv
 ```
 
 ---
 
-## Algorithm 8 — Role Reaction Loop (`RoleZero._react`, RAMA-modified)
+## Repository layout
 
 ```
-ROLE.RUN():
- 1  news ← observe(msg_buffer ∩ watched causes)
- 2  if news = ∅: return idle
- 3  if use_fixed_sop:                                        ▷ MOD-1
- 4      max_react_loop ← 1        ▷ one action/observation; else RoleZero's
-                                    default 50 repeats WritePRD dozens of times
- 5  else:
- 6      if QUICK_THINK(news)=QUICK: return text answer  ▷ bypassed for SOP roles
-                                                          (text answer = no files)
- 7  while actions_taken < max_react_loop:
- 8      todo ← THINK()   ▷ PM: PrepareDocuments if no workspace else WritePRD
- 9      if todo = ∅: break
-10      msg ← ACT(todo)  ▷ runs the Action; writes files; accrues ctx.cost_manager
-11  publish(msg)         ▷ wakes the next role in the SOP chain
-```
-
----
-
-## Algorithm 9 — MetaGPT SOP Action Chain (watch-driven)
-
-```
-UserRequirement ─▶ ProductManager : PrepareDocuments → WritePRD  → docs/prd/*.json
-                        ▼ watched by
-                   Architect      : WriteDesign  → docs/system_design/*.json
-                        ▼ watched by
-                   ProjectManager : WriteTasks   → docs/task/*.json
-                        ▼ watched by       (skipped when docs_only)
-                   Engineer       : WriteCodePlanAndChange → docs/code_plan_and_change/
-                                    WriteCode (per task file) → workspace/<pname>/<pname>/*
+rama.py                         # RAMA CLI entry point
+run_pure_baseline.py            # Batch runner over the PURE corpus
+metagpt/elicitation/
+├── schema/                     # E-commerce requirement schema
+├── parser/                     # W2 SRS parser (LLM + fallback)
+├── analyser/                   # W3 completeness analyser
+├── rag/                        # W1 knowledge-base retrieval
+├── dialogue/                   # W4 question selection and answer sources
+├── synthesiser/                # W5 enriched-SRS synthesis
+└── evaluation/                 # W6 metrics logger, ACQS scorer
+rag_store/                      # Domain knowledge base index
+config/config2.yaml             # LLM configuration
+evaluation_logs/                # runs.csv, batch results
+workspace/                      # MetaGPT outputs, one folder per run
+RAMA_PSEUDOCODE_CLEAN.md        # Algorithm listings (thesis appendix)
+RAMA_SCENARIOS.md               # Reproducible experiment commands
 ```
 
 ---
 
-## Algorithm 10 — Analysis Writer (`analysis_writer.py`)
+## Reproducibility notes
 
-```
-STASH(temp_path, analysis):        write analysis as JSON to temp_path (outside
-                                   workspace, so MetaGPT's rmtree cannot delete it)
-
-WRITE_ANALYSIS(docs_dir, analysis):
- 1  analysis.acqs ← ACQS(docs_dir/system_design)             ▷ Algorithm 11
- 2  render human-readable report with sections:
-      · Scenario (mode, ablations, random_questions, n_round …)
-      · Completeness: RAW vs Final (Formula 1), Δ, critical gaps
-      · Tokens — Elicitation (parse/dialogue/synthesis, per Algorithm 3a)
-      · Tokens — MetaGPT (prompt/completion/total, cost)
-      · Total tokens (both Gemini → additive)
-      · Latency: per-stage elicitation + MetaGPT + total
-      · ACQS (overall + 6 attributes)
- 3  write docs_dir/analysis.txt
-```
-
-Baseline note: for S0 (skip_elicitation) the Final-Synthesis score and
-elicitation tokens are N/A / 0; RAW completeness is still computed from the raw
-idea via PARSE_FALLBACK so S0 and S1 reports stay comparable.
-
----
-
-## Algorithm 11 — ACQS Scorer (`acqs_scorer.py`)
-
-```
-ACQS(system_design_files):
- 1  text ← concat(design JSON docs)
- 2  for each attribute a in {security, scalability, cost,
-                             performance, availability, modifiability}:
- 3      for each indicator group g of a (5–6 groups):
- 4          covered[g] ← ∃ pattern ∈ g : regex_match(pattern, text)
- 5      a_score ← |covered groups| / |groups of a|
- 6  ACQS ← mean(a_score over the 6 attributes)               ▷ 0–1
- 7  return { ACQS, per-attribute scores }
-```
-
----
-
-## Algorithm 12 — Evaluation Harness & Scenarios (W7–W8)
-
-```
-BATCH_EVAL(dataset, switches):                               ▷ W7 batch_runner
- 1  samples ← PURE_LOADER.load(dataset)     ▷ 79 PURE docs or 10 built-in
- 2  for each doc: try ELICIT(doc, switches) → batch_results.csv
-                  catch → error row, continue                ▷ per-doc isolation
-
-ANALYSE_RESULTS(results):                                    ▷ W8 results_analyser
- 1  mean/std/median of pre, post, Δ; % improved/unchanged/regressed
- 2  coverage distribution POOR/PARTIAL/GOOD/COMPLETE, pre vs post
- 3  COMPARE(A, B) → ablation table
-
-Experimental scenarios (each = one switch configuration):
-    S0  skip_elicitation                         baseline (MetaGPT only)
-    S1  full RAMA (all switches on)              treatment
-    A1  use_rag=off                              − RAG/KB
-    A2  use_llm_parse=off                        − LLM parse
-    A3  use_llm_synthesis=off                    − LLM synthesis
-    A4  A1+A2+A3                                  ablation floor
-    C1  random_questions=on                      prioritised-vs-random control
-    D1  sweep max_questions ∈ {1,3,5,10}         cost vs completeness curve
-    E1  batch over PURE; regress Δ on pre-score  conditional effect
-    R1  mode=interactive vs llm                  answer-source confound
-    R2  ACQS/rubric scored by two judges         metric validity
-Metrics per scenario: completeness (Formula 1), ACQS (Algorithm 11),
-tokens + latency (analysis.txt).
-```
-
----
-
-## MetaGPT-core modifications (methodology chapter)
-
-| #     | File                    | Change                                                                               | Reason                                                                                   |
-| ----- | ----------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| MOD-1 | `roles/di/role_zero.py` | `_react()`: when `use_fixed_sop`, skip `_quick_think()` and set `max_react_loop = 1` | QuickThink answers rich SRSs as text (no files); loop=50 repeats WritePRD ~50×           |
-| MOD-2 | `tools/libs/editor.py`  | `create_file(filename)` → `create_file(file_path)`                                   | LLM emits `file_path=` keyword; tool schema exposes the parameter name                   |
-| MOD-3 | `rama.py` (caller)      | classic role lineup instead of `generate_repo()`; preset `config.project_path`       | avoids TeamLeader/QuickThink; skips a fragile JSON-extraction call in `PrepareDocuments` |
-
-```
-
-```
+- Use the same idea string and `--n-round 10` across every MetaGPT-producing
+  scenario so outputs are comparable.
+- To compare architecture only (ACQS on `docs/system_design`), add
+  `--docs-only` uniformly to all scenarios.
+- LLM output is non-deterministic; repeat each scenario several times and
+  report mean ± SD.
