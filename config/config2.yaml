@@ -3,7 +3,7 @@
 # Config Docs: https://docs.deepwisdom.ai/main/en/guide/get_started/configuration.html
 llm:
   api_type: "gemini"
-  api_key: "AIzaSyDpHA3cTVH_UacEnW1tT_j7z_RLhNb0-GM"
+  api_key: "YOUR_API_KEY"
   model: "gemini-2.5-flash"
 
 # Claude (for later production use)

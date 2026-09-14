@@ -11,7 +11,6 @@ system design, task list and code. Every run also writes a per-run
 
 - Source: <https://github.com/Devinder1987/RAMA.git>
 - Full algorithm listing: [RAMA_PSEUDOCODE_CLEAN.md](RAMA_PSEUDOCODE_CLEAN.md)
-- Experiment scripts (S0, S1, A1–A4, C1, D1, E1, R1, R2): [RAMA_SCENARIOS.md](RAMA_SCENARIOS.md)
 
 ---
 
@@ -72,38 +71,19 @@ options, around 100 site visits per day
 Pass it as the first (quoted) argument to `rama.py`. If omitted you are
 prompted for it.
 
-### S0 — MetaGPT only (baseline)
+### MetaGPT only (baseline)
 
 ```bash
 python rama.py "<idea>" --skip-elicitation --n-round 10 \
   --project-name own_shop_S0_metagpt_only
 ```
 
-### S1 — Full RAMA, interactive (you answer the questions)
+### Full RAMA, interactive (you answer the questions)
 
 ```bash
 python rama.py "<idea>" --mode interactive --n-round 10 \
   --project-name own_shop_S1_full_rama
 ```
-
-### Other useful invocations
-
-```bash
-# Elicitation only — print the enriched SRS, don't launch MetaGPT
-python rama.py "<idea>" --dry-run
-
-# Save the enriched SRS to a file
-python rama.py "<idea>" --mode llm --save-srs enriched.txt
-
-# Docs only — PRD + system design + task list, no source code
-python rama.py "<idea>" --mode llm --n-round 10 --docs-only --project-name shop_docs
-
-# Ablation: no RAG hints, template synthesis
-python rama.py "<idea>" --mode llm --no-rag --no-llm-synthesis --n-round 10 \
-  --project-name own_shop_ablation
-```
-
-Run `python rama.py --help` for the full option list.
 
 ---
 
@@ -119,15 +99,12 @@ Run `python rama.py --help` for the full option list.
 | `--mode {interactive \| llm \| silent}` | Source of dialogue answers: human, simulated stakeholder, or none (pre-score only)             |
 | `--n-round N`                           | MetaGPT round limit (CLI default 5; **fixed at 10 in all reported runs**)                      |
 | `--max-questions N`                     | Dialogue question budget (default 10; **fixed at 10 in all reported runs**, varied only in D1) |
-
-| Switch                | Effect                                                            |
-| --------------------- | ----------------------------------------------------------------- |
-| `--dry-run`           | Run elicitation only; print the enriched SRS and stop             |
-| `--save-srs FILE`     | Write the enriched SRS to `FILE`                                  |
-| `--docs-only`         | Stop MetaGPT after the documentation stage (no Engineer, no code) |
-| `--project-name NAME` | Name of the `workspace/` folder for this run                      |
-| `--investment $`      | Dollar budget for the MetaGPT agent team (default 3.0)            |
-| `--no-code-review`    | Disable MetaGPT's code-review step                                |
+| `--dry-run`                             | Run elicitation only; print the enriched SRS and stop                                          |
+| `--save-srs FILE`                       | Write the enriched SRS to `FILE`                                                               |
+| `--docs-only`                           | Stop MetaGPT after the documentation stage (no Engineer, no code)                              |
+| `--project-name NAME`                   | Name of the `workspace/` folder for this run                                                   |
+| `--investment $`                        | Dollar budget for the MetaGPT agent team (default 3.0)                                         |
+| `--no-code-review`                      | Disable MetaGPT's code-review step                                                             |
 
 ---
 
